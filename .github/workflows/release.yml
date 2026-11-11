@@ -3,6 +3,11 @@ name: Release
 on:
   push:
     branches: [main]
+    # 문서만 바뀐 push는 릴리즈하지 않음 (코드와 함께 바뀌면 릴리즈됨)
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - 'LICENSE'
   workflow_dispatch:
 
 permissions:
