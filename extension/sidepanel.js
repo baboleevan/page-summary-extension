@@ -77,7 +77,7 @@ async function summarize(force = false, mode = "auto") {
 
   running = true;
   chrome.storage.session.set({ busyUntil: Date.now() + 6 * 60 * 1000 }); // 요약 중 자동 업데이트 재로드 방지
-  $("runBtn").disabled = true; $("copyBtn").disabled = true;
+  $("runBtn").disabled = true; $("copyBtn").disabled = true; $("updateBtn").disabled = true;
   $("result").innerHTML = ""; $("meta").textContent = "";
   const started = Date.now();
   const tick = () => setStatus(`<span class="spinner"></span>Aside로 요약 중... ${Math.round((Date.now() - started) / 1000)}초`);
@@ -103,6 +103,7 @@ async function summarize(force = false, mode = "auto") {
     running = false;
     chrome.storage.session.remove("busyUntil");
     $("runBtn").disabled = false;
+    $("updateBtn").disabled = false;
   }
 }
 
@@ -111,6 +112,30 @@ $("copyBtn").addEventListener("click", async () => {
   await navigator.clipboard.writeText(lastAnswer);
   $("copyBtn").textContent = "복사됨"; setTimeout(() => ($("copyBtn").textContent = "복사"), 1200);
 });
+// 플러그인 업데이트: 연결 프로그램이 최신 릴리즈를 받아 교체하면 확장을 다시 로드한다.
+const currentVersion = chrome.runtime.getManifest().version;
+$("updateBtn").title = `현재 버전 v${currentVersion}`;
+$("updateBtn").addEventListener("click", async () => {
+  if (running) return;
+  const btn = $("updateBtn");
+  btn.disabled = true; $("runBtn").disabled = true;
+  setStatus(`<span class="spinner"></span>업데이트 확인 중... (현재 v${currentVersion})`);
+  try {
+    const res = await askHost({ type: "update", current: currentVersion });
+    if (!res?.ok) throw new Error(res?.error || "업데이트 확인에 실패했습니다.");
+    if (res.updated) {
+      setStatus(`v${res.version}로 업데이트했습니다. 확장을 다시 로드합니다 (패널이 닫히면 다시 열어주세요).`);
+      setTimeout(() => chrome.runtime.reload(), 1500);
+      return;
+    }
+    if (res.skipped) setStatus(`업데이트하지 않음: ${res.skipped}`);
+    else setStatus(`이미 최신 버전입니다 (v${currentVersion}).`);
+  } catch (e) {
+    setStatus(e.message || String(e), true);
+  }
+  btn.disabled = false; $("runBtn").disabled = false;
+});
+
 // 다른 탭으로 옮기면 제목만 갱신 (자동 재요약은 하지 않음)
 chrome.tabs.onActivated.addListener(async () => {
   if (running) return;

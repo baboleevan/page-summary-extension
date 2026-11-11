@@ -4,7 +4,7 @@
 body { margin: 0; font: 14px/1.6 -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", sans-serif; color: var(--fg); background: var(--bg); }
 header { position: sticky; top: 0; background: var(--bg); padding: 12px 14px 10px; border-bottom: 1px solid var(--line); }
 .page-title { font-weight: 600; font-size: 13px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 8px; }
-.actions { display: flex; gap: 6px; }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; }
 button { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; }
 button#runBtn { background: var(--accent); border-color: var(--accent); color: #fff; }
 button:disabled { opacity: .5; cursor: default; }
