@@ -7,11 +7,15 @@ CLI 세션 저장(save-sessions)이 켜져 있으면 요약 대화가 Aside 채�
 구조: extension(sidepanel) → native messaging(com.leevan.page_summary) → host/page_summary_host.py → ~/.local/bin/aside exec
 
 ## 설치
-1. `gh auth login` (private 레포 릴리즈를 받기 위해 필요)
-2. `./install.sh` — `~/Library/Application Support/PageSummary/`에 복사하고 Aside, Chrome NativeMessagingHosts 등록
-3. 터미널: `aside settings save-sessions enable`
-4. chrome://extensions → 개발자 모드 → 압축해제된 확장 프로그램 로드 → `~/Library/Application Support/PageSummary/extension`
-   (manifest의 key 덕분에 ID는 항상 lbkfjnclldnifckhicfadolnajjdhlhk)
+처음 한 번만 아래 두 단계를 하면 됩니다. 이후 업데이트는 자동입니다.
+
+1. `./install.sh` 실행
+   - 레포를 클론했다면 레포 폴더에서, 아니면 Releases의 zip을 풀고 그 안에서 실행
+   - 파일 복사, 연결 프로그램 등록, Aside 채팅 목록 저장 설정까지 스크립트가 모두 처리합니다. 따로 등록할 것은 없습니다.
+2. `chrome://extensions` → 개발자 모드 켜기 → "압축해제된 확장 프로그램 로드" → `~/Library/Application Support/PageSummary/extension` 선택
+   - 파일 선택 창에서 `⌘⇧G`를 누르고 경로를 붙여넣으면 바로 이동합니다.
+
+필요 조건: Aside CLI(`~/.local/bin/aside`), 로그인된 `gh` CLI(`gh auth login`, 자동 업데이트용)
 
 ## 릴리즈 / 자동 업데이트
 - `main`에 push(또는 PR merge)하면 GitHub Actions가 `page-summary-vX.Y.N.zip`을 Releases에 올립니다.
