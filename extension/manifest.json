@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "핵심 정리 (Aside)",
+  "version": "1.0.1",
+  "description": "버튼 한 번으로 현재 페이지 본문을 Aside로 요약합니다.",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAveM7EQhpS0OgHEjAuUGOaOxV0O/DqnWst2vu/J91ydsR4e0BP6rhhRQ2UNbEaLHFOLKHPxIlSRk/higSf92yxs0+aBtYvFZS2tiEekFYuqYaBRddkvcraLaBHPNX2rmwS94nV/Xd5blGhQsyFykbQz5HCMmAvt23ZMAJUZiw4k8ZX3e7T2EW0rlhT5kojLuguS+LOe2MoW/5VsDADsUT/yWqa8BxbTsDvEwzYmAAQmhBit1N+MM6hAYJmwIBDljIqaSGCsQL154gPciWvrXdWsMEtKSjoPByzG5XwNk2nSdpr/GqLY7d92OyOdh5hwCgB2Mwp5wiNAv9TGKLSMLJZwIDAQAB",
+  "permissions": ["sidePanel", "activeTab", "scripting", "nativeMessaging", "tabs", "storage", "alarms", "contextMenus"],
+  "host_permissions": ["<all_urls>"],
+  "action": { "default_title": "핵심 정리" },
+  "side_panel": { "default_path": "sidepanel.html" },
+  "background": { "service_worker": "background.js" },
+  "commands": {
+    "_execute_action": { "suggested_key": { "default": "Ctrl+0", "mac": "MacCtrl+0" }, "description": "핵심 정리 패널 열기" }
+  }
+}

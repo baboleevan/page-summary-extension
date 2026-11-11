@@ -1,0 +1,12 @@
+# 확장 서명 키 (비공개) — id.txt만 커밋
+.keys/*
+!.keys/id.txt
+*.pem
+*.crx
+# 빌드 산출물
+dist/
+*.zip
+# OS/Python
+.DS_Store
+__pycache__/
+*.pyc

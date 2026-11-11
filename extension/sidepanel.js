@@ -1,0 +1,136 @@
+const HOST = "com.leevan.page_summary";
+const $ = (id) => document.getElementById(id);
+let running = false;
+let lastAnswer = "";
+let currentTab = null;
+
+// 페이지 안에서 실행되는 본문 추출 함수 (직렬화되어 주입됨)
+function extractMainText(mode) {
+  const sel = ["article", "[role=main]", "main", ".entry-content", ".tt_article_useless_p_margin",
+    ".post-content", ".article-body", "#content", ".content"];
+  let best = null, bestLen = 0;
+  for (const s of sel) {
+    for (const el of document.querySelectorAll(s)) {
+      const len = (el.innerText || "").trim().length;
+      if (len > bestLen) { best = el; bestLen = len; }
+    }
+  }
+  const sel2 = window.getSelection && String(window.getSelection()).trim();
+  // 우클릭 "선택한 텍스트 요약"이면 길이와 상관없이 선택 영역 사용
+  const useSel = !!sel2 && (mode === "selection" || (mode !== "page" && sel2.length > 200));
+  let text = useSel ? sel2 : (bestLen > 500 ? best.innerText : document.body.innerText);
+  text = text.replace(/\n{3,}/g, "\n\n").trim();
+  return { title: document.title, url: location.href, text: text.slice(0, 40000), truncated: text.length > 40000, fromSelection: useSel };
+}
+
+function setStatus(html, isError = false) {
+  const el = $("status");
+  el.className = "status" + (isError ? " error" : "");
+  el.innerHTML = html;
+}
+
+async function getActiveTab() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  return tab;
+}
+
+function askHost(payload) {
+  return new Promise((resolve, reject) => {
+    let port;
+    try { port = chrome.runtime.connectNative(HOST); } catch (e) { return reject(e); }
+    let done = false;
+    port.onMessage.addListener((msg) => { done = true; resolve(msg); port.disconnect(); });
+    port.onDisconnect.addListener(() => {
+      if (!done) reject(new Error(chrome.runtime.lastError?.message || "연결 프로그램이 응답 없이 종료됐습니다."));
+    });
+    port.postMessage(payload);
+  });
+}
+
+function showResult(data) {
+  lastAnswer = data.answer || "";
+  $("result").innerHTML = renderMarkdown(lastAnswer);
+  $("copyBtn").disabled = !lastAnswer;
+  const bits = [];
+  if (data.elapsed) bits.push(`${data.elapsed}초`);
+  if (data.sessionId) bits.push(`Aside 채팅에 저장됨 (${data.sessionId})`);
+  if (data.truncated) bits.push("본문이 길어 앞 40,000자만 사용");
+  if (data.fromSelection) bits.push("선택한 텍스트 기준");
+  $("meta").textContent = bits.join(" · ");
+}
+
+async function summarize(force = false, mode = "auto") {
+  if (running) return;
+  currentTab = await getActiveTab();
+  if (!currentTab?.id || !/^https?:/.test(currentTab.url || "")) {
+    setStatus("일반 웹페이지(http/https)에서만 요약할 수 있습니다.", true);
+    return;
+  }
+  $("pageTitle").textContent = currentTab.title || currentTab.url;
+
+  const cacheKey = "sum:" + currentTab.url;
+  if (mode === "selection") force = true; // 선택 영역 요약은 캐시하지 않음
+  if (!force) {
+    const cached = (await chrome.storage.session.get(cacheKey))[cacheKey];
+    if (cached) { setStatus("이전에 만든 요약입니다. 새로 만들려면 버튼을 누르세요."); showResult(cached); return; }
+  }
+
+  running = true;
+  $("runBtn").disabled = true; $("copyBtn").disabled = true;
+  $("result").innerHTML = ""; $("meta").textContent = "";
+  const started = Date.now();
+  const tick = () => setStatus(`<span class="spinner"></span>Aside로 요약 중... ${Math.round((Date.now() - started) / 1000)}초`);
+  tick();
+  const timer = setInterval(tick, 1000);
+  try {
+    const [{ result: page }] = await chrome.scripting.executeScript({ target: { tabId: currentTab.id }, func: extractMainText, args: [mode] });
+    if (!page?.text || page.text.length < 50) throw new Error("본문 텍스트를 찾지 못했습니다.");
+    const res = await askHost({ title: page.title, url: page.url, text: page.text });
+    if (!res?.ok) throw new Error(res?.error || "요약에 실패했습니다.");
+    const data = { ...res, elapsed: Math.round((Date.now() - started) / 1000), truncated: page.truncated, fromSelection: page.fromSelection };
+    if (mode !== "selection") await chrome.storage.session.set({ [cacheKey]: data });
+    setStatus("");
+    showResult(data);
+  } catch (e) {
+    let msg = e.message || String(e);
+    if (/native messaging host not found|Specified native messaging host not found/i.test(msg)) {
+      msg += "\n\ninstall.sh 를 실행해 연결 프로그램을 등록했는지 확인하세요.";
+    }
+    setStatus(msg, true);
+  } finally {
+    clearInterval(timer);
+    running = false;
+    $("runBtn").disabled = false;
+  }
+}
+
+$("runBtn").addEventListener("click", () => summarize(true));
+$("copyBtn").addEventListener("click", async () => {
+  await navigator.clipboard.writeText(lastAnswer);
+  $("copyBtn").textContent = "복사됨"; setTimeout(() => ($("copyBtn").textContent = "복사"), 1200);
+});
+// 다른 탭으로 옮기면 제목만 갱신 (자동 재요약은 하지 않음)
+chrome.tabs.onActivated.addListener(async () => {
+  if (running) return;
+  const t = await getActiveTab();
+  $("pageTitle").textContent = t?.title || t?.url || "-";
+});
+
+// 우클릭 메뉴(패널이 이미 열린 경우)
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg?.type === "summarize") {
+    chrome.storage.session.remove("pendingRequest");
+    summarize(msg.mode === "selection", msg.mode);
+  }
+});
+
+// 패널이 열리면 바로 요약 시작 (우클릭으로 열렸으면 그 요청 모드로)
+(async () => {
+  const { pendingRequest: p } = await chrome.storage.session.get("pendingRequest");
+  if (p && Date.now() - p.ts < 5000) {
+    await chrome.storage.session.remove("pendingRequest");
+    summarize(p.mode === "selection", p.mode);
+  } else {
+    summarize(false);
+  }
+})();

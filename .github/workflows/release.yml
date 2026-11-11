@@ -1,0 +1,47 @@
+name: Release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 버전 계산
+        id: ver
+        run: |
+          BASE=$(jq -r .version extension/manifest.json)
+          MAJOR=$(echo "$BASE" | cut -d. -f1)
+          MINOR=$(echo "$BASE" | cut -d. -f2)
+          echo "version=${MAJOR}.${MINOR}.${{ github.run_number }}" >> "$GITHUB_OUTPUT"
+
+      - name: zip 빌드
+        env:
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          OUT=dist/page-summary
+          mkdir -p "$OUT/.keys"
+          cp -R extension host install.sh README.md "$OUT/"
+          cp .keys/id.txt "$OUT/.keys/"
+          jq --arg v "$VERSION" '.version = $v' extension/manifest.json > "$OUT/extension/manifest.json"
+          chmod +x "$OUT/install.sh" "$OUT/host/page_summary_host.py"
+          (cd dist && zip -r "page-summary-v$VERSION.zip" page-summary)
+
+      - name: Release 생성
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.ver.outputs.version }}
+        run: |
+          gh release create "v$VERSION" dist/*.zip \
+            --title "v$VERSION" --target "${{ github.sha }}" --generate-notes
