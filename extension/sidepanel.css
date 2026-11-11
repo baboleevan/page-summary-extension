@@ -8,6 +8,8 @@ header { position: sticky; top: 0; background: var(--bg); padding: 12px 14px 10p
 button { font: inherit; font-size: 13px; padding: 5px 12px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--fg); cursor: pointer; }
 button#runBtn { background: var(--accent); border-color: var(--accent); color: #fff; }
 button:disabled { opacity: .5; cursor: default; }
+button#updateBtn { position: relative; }
+.badge { position: absolute; top: -9px; right: -6px; padding: 0 6px; border-radius: 999px; background: #dc2626; color: #fff; font-size: 10px; font-weight: 600; line-height: 16px; white-space: nowrap; pointer-events: none; }
 .status { padding: 10px 14px 0; color: var(--muted); font-size: 13px; }
 .status.error { color: #dc2626; white-space: pre-wrap; }
 .result { padding: 4px 14px 16px; }

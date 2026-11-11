@@ -115,6 +115,38 @@ $("copyBtn").addEventListener("click", async () => {
 // 플러그인 업데이트: 연결 프로그램이 최신 릴리즈를 받아 교체하면 확장을 다시 로드한다.
 const currentVersion = chrome.runtime.getManifest().version;
 $("updateBtn").title = `현재 버전 v${currentVersion}`;
+
+const isNewer = (a, b) => {
+  const pa = String(a).split(".").map(Number), pb = String(b).split(".").map(Number);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    if ((pa[i] || 0) !== (pb[i] || 0)) return (pa[i] || 0) > (pb[i] || 0);
+  }
+  return false;
+};
+
+// 구버전이면 업데이트 버튼 위에 새 버전 배지 표시
+function renderBadge(latest) {
+  const badge = $("updateBadge");
+  const show = latest && isNewer(latest, currentVersion);
+  badge.hidden = !show;
+  badge.textContent = show ? `v${latest}` : "";
+  $("updateBtn").title = show ? `새 버전 v${latest} (현재 v${currentVersion})` : `현재 버전 v${currentVersion}`;
+}
+
+(async () => {
+  const { latestVersion, latestCheckedAt } = await chrome.storage.local.get(["latestVersion", "latestCheckedAt"]);
+  renderBadge(latestVersion);
+  // 패널을 열 때 10분 넘게 확인하지 않았으면 다시 확인 (설치는 하지 않음)
+  if (!latestCheckedAt || Date.now() - latestCheckedAt > 10 * 60 * 1000) {
+    try {
+      const res = await askHost({ type: "check" });
+      if (res?.ok) chrome.storage.local.set({ latestVersion: res.latest, latestCheckedAt: Date.now() });
+    } catch (e) { console.warn(e); }
+  }
+})();
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes.latestVersion) renderBadge(changes.latestVersion.newValue);
+});
 $("updateBtn").addEventListener("click", async () => {
   if (running) return;
   const btn = $("updateBtn");
@@ -128,6 +160,7 @@ $("updateBtn").addEventListener("click", async () => {
       setTimeout(() => chrome.runtime.reload(), 1500);
       return;
     }
+    if (res.latest) chrome.storage.local.set({ latestVersion: res.latest, latestCheckedAt: Date.now() });
     if (res.skipped) setStatus(`업데이트하지 않음: ${res.skipped}`);
     else setStatus(`이미 최신 버전입니다 (v${currentVersion}).`);
   } catch (e) {

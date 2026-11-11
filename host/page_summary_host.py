@@ -76,7 +76,7 @@ def update(current):
     rel = json.loads(http_get("https://api.github.com/repos/%s/releases/latest" % REPO))
     tag = rel["tag_name"]
     if parse_ver(tag) <= parse_ver(current):
-        return {"ok": True, "updated": False, "latest": tag}
+        return {"ok": True, "updated": False, "latest": tag.lstrip("v")}
     lock = open(os.path.join(INSTALL_DIR, ".update.lock"), "w")
     try:
         fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -117,6 +117,14 @@ def update(current):
 def main():
     msg = read_msg()
     if not msg:
+        return
+    if msg.get("type") == "check":  # 설치 없이 최신 버전만 확인
+        try:
+            rel = json.loads(http_get("https://api.github.com/repos/%s/releases/latest" % REPO))
+            send_msg({"ok": True, "latest": rel["tag_name"].lstrip("v")})
+        except Exception as e:  # noqa
+            log("check failed: %r" % e)
+            send_msg({"ok": False, "error": "버전 확인 실패: %s" % e})
         return
     if msg.get("type") == "update":
         try:
