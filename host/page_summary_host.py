@@ -1,13 +1,12 @@
 #!/usr/bin/python3
 """Native messaging host: 확장에서 받은 본문을 `aside exec`로 요약해 돌려준다."""
-import fcntl, json, os, re, shutil, struct, subprocess, sys, tempfile, time, zipfile
+import fcntl, json, os, re, shutil, struct, subprocess, sys, tempfile, time, urllib.request, zipfile
 
 ASIDE = os.path.expanduser("~/.local/bin/aside")
 EFFORT = os.environ.get("PAGE_SUMMARY_EFFORT", "low")
 TIMEOUT = "5m"
 LOG = os.path.expanduser("~/Library/Logs/page-summary-host.log")
 REPO = "baboleevan/page-summary-extension"
-GH_CANDIDATES = ["/opt/homebrew/bin/gh", "/usr/local/bin/gh"]
 INSTALL_DIR = os.path.dirname(os.path.dirname(os.path.realpath(__file__)))
 EXTRA_PATH = os.path.expanduser("~/.local/bin") + ":/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin"
 
@@ -63,20 +62,19 @@ def parse_ver(v):
         return (0,)
 
 
-def gh(*args, timeout=120):
-    exe = next((c for c in GH_CANDIDATES if os.path.exists(c)), "gh")
-    p = subprocess.run([exe] + list(args), stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                       env=make_env(), timeout=timeout)
-    if p.returncode != 0:
-        raise RuntimeError("gh %s 실패: %s" % (args[0:2], (p.stderr or "").strip()[-300:]))
-    return p.stdout.strip()
+def http_get(url, timeout=60):
+    """public 레포라 인증 없이 GitHub API/릴리즈 파일을 받는다."""
+    req = urllib.request.Request(url, headers={"User-Agent": "page-summary-updater", "Accept": "application/vnd.github+json"})
+    with urllib.request.urlopen(req, timeout=timeout) as r:
+        return r.read()
 
 
 def update(current):
     """최신 릴리즈가 current보다 새로우면 zip을 받아 설치 경로의 extension/, host/를 교체한다."""
     if os.path.exists(os.path.join(INSTALL_DIR, ".git")):
         return {"ok": True, "updated": False, "skipped": "git 작업 트리에서 실행 중이라 자동 업데이트를 건너뜀"}
-    tag = gh("release", "view", "--repo", REPO, "--json", "tagName", "-q", ".tagName")
+    rel = json.loads(http_get("https://api.github.com/repos/%s/releases/latest" % REPO))
+    tag = rel["tag_name"]
     if parse_ver(tag) <= parse_ver(current):
         return {"ok": True, "updated": False, "latest": tag}
     lock = open(os.path.join(INSTALL_DIR, ".update.lock"), "w")
@@ -86,12 +84,14 @@ def update(current):
         return {"ok": True, "updated": False, "skipped": "다른 업데이트가 진행 중"}
     try:
         with tempfile.TemporaryDirectory(prefix="page-summary-") as tmp:
-            gh("release", "download", tag, "--repo", REPO, "--pattern", "*.zip", "--dir", tmp, timeout=300)
-            zips = [f for f in os.listdir(tmp) if f.endswith(".zip")]
-            if not zips:
+            asset = next((a for a in rel.get("assets", []) if a["name"].endswith(".zip")), None)
+            if not asset:
                 raise RuntimeError("릴리즈 %s에 zip이 없습니다" % tag)
+            zpath = os.path.join(tmp, asset["name"])
+            with open(zpath, "wb") as f:
+                f.write(http_get(asset["browser_download_url"], timeout=300))
             out = os.path.join(tmp, "x")
-            with zipfile.ZipFile(os.path.join(tmp, zips[0])) as z:
+            with zipfile.ZipFile(zpath) as z:
                 z.extractall(out)
             root = os.path.join(out, "page-summary")
             if not os.path.exists(os.path.join(root, "extension", "manifest.json")):

@@ -32,7 +32,6 @@ for B in "Aside" "Google/Chrome"; do
   echo "등록: $T/$HOST_NAME.json"
 done
 "$HOME/.local/bin/aside" settings save-sessions enable && echo "Aside 채팅 목록 저장: 켜짐" || echo "save-sessions 설정 실패: 터미널에서 'aside settings save-sessions enable' 실행"
-command -v gh >/dev/null && gh auth status >/dev/null 2>&1 && echo "자동 업데이트: gh 인증 확인됨" || echo "자동 업데이트에는 gh CLI 로그인이 필요합니다: gh auth login"
 echo "확장 ID: $EXT_ID"
 echo "chrome://extensions 에서 개발자 모드 > '압축해제된 확장 프로그램 로드' > $INSTALL_DIR/extension"
 echo "(이미 로드돼 있었다면 기존 항목을 제거하고 위 경로로 다시 로드하세요)"
