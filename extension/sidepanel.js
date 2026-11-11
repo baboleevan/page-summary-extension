@@ -76,6 +76,7 @@ async function summarize(force = false, mode = "auto") {
   }
 
   running = true;
+  chrome.storage.session.set({ busyUntil: Date.now() + 6 * 60 * 1000 }); // 요약 중 자동 업데이트 재로드 방지
   $("runBtn").disabled = true; $("copyBtn").disabled = true;
   $("result").innerHTML = ""; $("meta").textContent = "";
   const started = Date.now();
@@ -100,6 +101,7 @@ async function summarize(force = false, mode = "auto") {
   } finally {
     clearInterval(timer);
     running = false;
+    chrome.storage.session.remove("busyUntil");
     $("runBtn").disabled = false;
   }
 }

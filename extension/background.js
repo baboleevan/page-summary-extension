@@ -1,5 +1,16 @@
 const HOST = "com.leevan.page_summary";
 const UPDATE_ALARM = "checkUpdate";
+const RELOAD_ALARM = "reloadPending";
+
+// 요약 중(sidepanel이 busyUntil 기록)이면 재로드를 30초씩 미룬다. 재로드하면 패널과 진행 중인 요약이 끊기기 때문.
+async function reloadWhenIdle() {
+  const { busyUntil } = await chrome.storage.session.get("busyUntil");
+  if (busyUntil && busyUntil > Date.now()) {
+    chrome.alarms.create(RELOAD_ALARM, { delayInMinutes: 0.5 });
+  } else {
+    chrome.runtime.reload();
+  }
+}
 
 function setup() {
   chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(console.error);
@@ -34,7 +45,7 @@ function checkUpdate() {
     port.disconnect();
     if (msg?.updated) {
       console.log("업데이트됨:", msg.version);
-      chrome.runtime.reload();
+      reloadWhenIdle();
     } else if (msg && !msg.ok) {
       console.warn(msg.error);
     }
@@ -43,4 +54,7 @@ function checkUpdate() {
   port.postMessage({ type: "update", current: chrome.runtime.getManifest().version });
 }
 
-chrome.alarms.onAlarm.addListener((a) => { if (a.name === UPDATE_ALARM) checkUpdate(); });
+chrome.alarms.onAlarm.addListener((a) => {
+  if (a.name === UPDATE_ALARM) checkUpdate();
+  if (a.name === RELOAD_ALARM) reloadWhenIdle();
+});
