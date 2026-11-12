@@ -26,6 +26,13 @@ URL: {url}
 {text}
 ----- 본문 끝 -----"""
 
+# 요약 세션을 이어서(session resume) 묻는다. 고정 접두어가 있어 질문이 "-"로 시작해도 CLI 옵션으로 해석되지 않는다.
+ASK_PROMPT = """[추가 질문] 브라우저를 열거나 조작하지 말고, 앞에서 준 본문과 지금까지의 대화를 바탕으로 한국어로 답해줘.
+본문에 없는 내용이면 그렇다고 밝히고, 일반 지식으로 보충할 때는 본문 내용과 구분해서 말해줘.
+마크다운만 출력하고 서론/맺음말은 쓰지 마.
+
+질문: {question}"""
+
 
 def log(msg):
     try:
@@ -114,6 +121,35 @@ def update(current):
         lock.close()
 
 
+def run_aside(args, label):
+    """aside를 --json으로 실행해 {"ok", "answer", "sessionId"} 또는 {"ok": False, "error"}를 돌려준다."""
+    cmd = [ASIDE] + args
+    try:
+        p = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, env=make_env(), timeout=330)
+    except FileNotFoundError:
+        return {"ok": False, "error": "Aside CLI를 찾지 못했습니다: " + ASIDE}
+    except subprocess.TimeoutExpired:
+        return {"ok": False, "error": "%s 5분 안에 끝나지 않았습니다." % label}
+    out, err_text = (p.stdout or "").strip(), (p.stderr or "").strip()
+    # --json이면 실패(타임아웃·세션 없음 등)도 stdout에 JSON으로 온다. JSON이 아니면 예전 방식(stdout=답, stderr=세션 id)으로 읽는다.
+    try:
+        res = json.loads(out)
+        answer = (res.get("answer") or "").strip()
+        sid = (res.get("session") or {}).get("id")
+        error = res.get("error") or ""
+    except (ValueError, AttributeError):
+        m = re.search(r"session: ([A-Za-z0-9_-]+)", err_text)
+        answer, sid, error = out, m.group(1) if m else None, ""
+    log("exit=%s sid=%s out=%d error=%s err_tail=%s" % (p.returncode, sid, len(answer), error[:200], err_text[-300:].replace("\n", " | ")))
+    if p.returncode != 0 or not answer:
+        detail = "\n".join(x for x in [error] + err_text.splitlines()[-6:] if x)
+        hint = ""
+        if "Authentication failed" in error + err_text:
+            hint = "\n\n→ Aside 앱의 모델 provider 인증이 만료됐습니다. Aside 설정에서 해당 provider(예: Claude Code)를 다시 연결하세요."
+        return {"ok": False, "error": "Aside CLI 실패 (exit %s)\n%s%s" % (p.returncode, detail, hint)}
+    return {"ok": True, "answer": answer, "sessionId": sid}
+
+
 def main():
     msg = read_msg()
     if not msg:
@@ -133,26 +169,23 @@ def main():
             log("update failed: %r" % e)
             send_msg({"ok": False, "error": "업데이트 실패: %s" % e})
         return
+    if msg.get("type") == "ask":  # 요약 세션에 이어서 추가 질문
+        sid, question = str(msg.get("sessionId") or ""), str(msg.get("question") or "").strip()
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]*", sid):  # "-"로 시작하면 CLI 옵션으로 해석되므로 막는다
+            send_msg({"ok": False, "error": "이어서 질문할 요약 세션이 없습니다. 다시 요약한 뒤 질문해주세요."})
+            return
+        if not question:
+            send_msg({"ok": False, "error": "질문이 비어 있습니다."})
+            return
+        log("ask: %s (%d chars)" % (sid, len(question)))
+        send_msg(run_aside(["session", "resume", "--json", "--timeout", TIMEOUT, sid, ASK_PROMPT.format(question=question)], "답변이"))
+        return
+    if msg.get("type") not in (None, "summarize"):
+        send_msg({"ok": False, "error": "알 수 없는 요청 종류: %s (확장과 연결 프로그램 버전이 맞지 않을 수 있습니다)" % msg.get("type")})
+        return
     prompt = PROMPT.format(title=msg.get("title", ""), url=msg.get("url", ""), text=msg.get("text", ""))
-    cmd = [ASIDE, "exec", "--effort", EFFORT, "--timeout", TIMEOUT, prompt]
     log("run: %s (%d chars)" % (msg.get("url"), len(prompt)))
-    env = make_env()
-    try:
-        p = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, env=env, timeout=330)
-    except FileNotFoundError:
-        send_msg({"ok": False, "error": "Aside CLI를 찾지 못했습니다: " + ASIDE})
-        return
-    except subprocess.TimeoutExpired:
-        send_msg({"ok": False, "error": "요약이 5분 안에 끝나지 않았습니다."})
-        return
-    sid = re.search(r"\bses_[A-Za-z0-9]+", p.stderr or "")
-    answer = (p.stdout or "").strip()
-    log("exit=%s sid=%s out=%d err_tail=%s" % (p.returncode, sid.group(0) if sid else None, len(answer), (p.stderr or "")[-300:].replace("\n", " | ")))
-    if p.returncode != 0 or not answer:
-        err = (p.stderr or "").strip().splitlines()
-        send_msg({"ok": False, "error": "Aside CLI 실패 (exit %s)\n%s" % (p.returncode, "\n".join(err[-6:]))})
-        return
-    send_msg({"ok": True, "answer": answer, "sessionId": sid.group(0) if sid else None})
+    send_msg(run_aside(["exec", "--json", "--effort", EFFORT, "--timeout", TIMEOUT, prompt], "요약이"))
 
 
 if __name__ == "__main__":

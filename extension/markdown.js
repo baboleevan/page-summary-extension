@@ -18,12 +18,17 @@ function renderMarkdown(md) {
     while (stack.length && stack[stack.length - 1].indent >= indent) out.push(`</li></${stack.pop().type}>`);
   };
   let para = [];
+  let blank = false; // 바로 앞 줄이 빈 줄이었는지
   const flushPara = () => { if (para.length) { out.push(`<p>${inlineMd(para.join(" "))}</p>`); para = []; } };
   for (const raw of lines) {
     const line = raw.replace(/\t/g, "  ");
     const h = line.match(/^(#{1,6})\s+(.*)$/);
     const li = line.match(/^(\s*)([-*+]|\d+[.)])\s+(.*)$/);
-    if (!line.trim()) { flushPara(); continue; }
+    if (!line.trim()) { flushPara(); blank = true; continue; }
+    const afterBlank = blank;
+    blank = false;
+    // 빈 줄 뒤에 들여쓰기 없는 일반 줄이 오면 목록이 끝난 것 (목록 뒤 문단이 마지막 항목에 붙지 않게)
+    if (afterBlank && !li && !h && !/^\s/.test(line)) closeLists(0);
     if (h) { flushPara(); closeLists(0); const n = Math.min(h[1].length + 1, 3); out.push(`<h${n}>${inlineMd(h[2])}</h${n}>`); continue; }
     if (li) {
       flushPara();

@@ -3,6 +3,8 @@ const $ = (id) => document.getElementById(id);
 let running = false;
 let lastAnswer = "";
 let currentTab = null;
+// 화면에 보이는 요약 { data, cacheKey }. 추가 질문은 활성 탭이 아니라 이 요약의 Aside 세션으로 보낸다.
+let current = null;
 
 // 페이지 안에서 실행되는 본문 추출 함수 (직렬화되어 주입됨)
 function extractMainText(mode) {
@@ -47,7 +49,27 @@ function askHost(payload) {
   });
 }
 
-function showResult(data) {
+// 요약/질문/업데이트 중에는 다른 작업 버튼을 막는다 (입력창은 다음 질문을 미리 쓸 수 있게 열어 둔다).
+function setBusy(on) {
+  running = on;
+  $("runBtn").disabled = on;
+  $("updateBtn").disabled = on;
+  renderComposer();
+}
+
+function renderComposer() {
+  const canAsk = !!current?.data?.sessionId;
+  $("askForm").hidden = !current;
+  $("askInput").disabled = !canAsk;
+  $("askBtn").disabled = !canAsk || running;
+  $("askInput").placeholder = canAsk ? "이 페이지에 대해 더 물어보기" : "다시 요약하면 질문할 수 있어요";
+  $("askInput").title = canAsk
+    ? "Enter 전송 · Shift+Enter 줄바꿈"
+    : "이 요약에는 이어서 질문할 Aside 세션 정보가 없습니다. '이 페이지 요약'을 다시 눌러주세요.";
+}
+
+function showResult(data, cacheKey = null) {
+  current = { data, cacheKey };
   lastAnswer = data.answer || "";
   $("result").innerHTML = renderMarkdown(lastAnswer);
   $("copyBtn").disabled = !lastAnswer;
@@ -57,6 +79,20 @@ function showResult(data) {
   if (data.truncated) bits.push("본문이 길어 앞 40,000자만 사용");
   if (data.fromSelection) bits.push("선택한 텍스트 기준");
   $("meta").textContent = bits.join(" · ");
+  $("thread").innerHTML = "";
+  for (const item of data.chat || []) {
+    addMsg("q", item.q);
+    fillAnswer(addMsg("a"), item);
+  }
+  renderComposer();
+}
+
+function clearResult() {
+  current = null;
+  lastAnswer = "";
+  $("result").innerHTML = ""; $("meta").textContent = ""; $("thread").innerHTML = "";
+  $("copyBtn").disabled = true;
+  renderComposer();
 }
 
 async function summarize(force = false, mode = "auto") {
@@ -72,13 +108,12 @@ async function summarize(force = false, mode = "auto") {
   if (mode === "selection") force = true; // 선택 영역 요약은 캐시하지 않음
   if (!force) {
     const cached = (await chrome.storage.session.get(cacheKey))[cacheKey];
-    if (cached) { setStatus("이전에 만든 요약입니다. 새로 만들려면 버튼을 누르세요."); showResult(cached); return; }
+    if (cached) { setStatus("이전에 만든 요약입니다. 새로 만들려면 버튼을 누르세요."); showResult(cached, cacheKey); return; }
   }
 
-  running = true;
   chrome.storage.session.set({ busyUntil: Date.now() + 6 * 60 * 1000 }); // 요약 중 자동 업데이트 재로드 방지
-  $("runBtn").disabled = true; $("copyBtn").disabled = true; $("updateBtn").disabled = true;
-  $("result").innerHTML = ""; $("meta").textContent = "";
+  clearResult(); // 새 요약은 새 Aside 세션이라 이전 대화도 지운다
+  setBusy(true);
   const started = Date.now();
   const tick = () => setStatus(`<span class="spinner"></span>Aside로 요약 중... ${Math.round((Date.now() - started) / 1000)}초`);
   tick();
@@ -88,10 +123,10 @@ async function summarize(force = false, mode = "auto") {
     if (!page?.text || page.text.length < 50) throw new Error("본문 텍스트를 찾지 못했습니다.");
     const res = await askHost({ title: page.title, url: page.url, text: page.text });
     if (!res?.ok) throw new Error(res?.error || "요약에 실패했습니다.");
-    const data = { ...res, elapsed: Math.round((Date.now() - started) / 1000), truncated: page.truncated, fromSelection: page.fromSelection };
+    const data = { ...res, elapsed: Math.round((Date.now() - started) / 1000), truncated: page.truncated, fromSelection: page.fromSelection, chat: [] };
     if (mode !== "selection") await chrome.storage.session.set({ [cacheKey]: data });
     setStatus("");
-    showResult(data);
+    showResult(data, mode !== "selection" ? cacheKey : null);
   } catch (e) {
     let msg = e.message || String(e);
     if (/native messaging host not found|Specified native messaging host not found/i.test(msg)) {
@@ -100,12 +135,92 @@ async function summarize(force = false, mode = "auto") {
     setStatus(msg, true);
   } finally {
     clearInterval(timer);
-    running = false;
     chrome.storage.session.remove("busyUntil");
-    $("runBtn").disabled = false;
-    $("updateBtn").disabled = false;
+    setBusy(false);
   }
 }
+
+// ---- 추가 질문: 요약을 만든 Aside 세션을 이어서(session resume) 묻는다 ----
+function addMsg(kind, text) {
+  const el = document.createElement("div");
+  el.className = "msg " + kind;
+  if (text != null) el.textContent = text;
+  $("thread").appendChild(el);
+  return el;
+}
+
+function fillAnswer(el, item) {
+  el.className = "msg a md";
+  el.innerHTML = renderMarkdown(item.a || "");
+  if (item.elapsed) {
+    const meta = document.createElement("div");
+    meta.className = "msg-meta";
+    meta.textContent = `${item.elapsed}초`;
+    el.appendChild(meta);
+  }
+}
+
+// 고정 헤더에 가리지 않게 el이 헤더 바로 아래 오도록 스크롤
+function scrollToMsg(el) {
+  const top = el.getBoundingClientRect().top + window.scrollY - document.querySelector("header").offsetHeight - 8;
+  window.scrollTo({ top, behavior: "smooth" });
+}
+
+function autoGrow() {
+  const t = $("askInput");
+  t.style.height = "auto";
+  t.style.height = Math.min(t.scrollHeight + t.offsetHeight - t.clientHeight, 140) + "px";
+}
+
+async function ask(question) {
+  const target = current;
+  if (running || !target?.data?.sessionId || !question) return;
+  chrome.storage.session.set({ busyUntil: Date.now() + 6 * 60 * 1000 }); // 답변 중 자동 업데이트 재로드 방지
+  setBusy(true);
+  setStatus("");
+  const qEl = addMsg("q", question);
+  const aEl = addMsg("pending");
+  const started = Date.now();
+  const tick = () => { aEl.innerHTML = `<span class="spinner"></span>Aside가 답변 중... ${Math.round((Date.now() - started) / 1000)}초`; };
+  tick();
+  const timer = setInterval(tick, 1000);
+  window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+  try {
+    const res = await askHost({ type: "ask", sessionId: target.data.sessionId, question });
+    if (!res?.ok) throw new Error(res?.error || "답변을 받지 못했습니다.");
+    const item = { q: question, a: res.answer, elapsed: Math.round((Date.now() - started) / 1000) };
+    target.data.chat = [...(target.data.chat || []), item];
+    if (target.cacheKey) await chrome.storage.session.set({ [target.cacheKey]: target.data });
+    fillAnswer(aEl, item);
+    scrollToMsg(qEl);
+  } catch (e) {
+    aEl.className = "msg error";
+    aEl.textContent = e.message || String(e);
+    // 실패한 질문은 입력창에 되돌려 다시 보낼 수 있게 한다 (그사이 새로 쓴 내용이 있으면 그대로 둔다)
+    if (!$("askInput").value.trim()) { $("askInput").value = question; autoGrow(); }
+  } finally {
+    clearInterval(timer);
+    chrome.storage.session.remove("busyUntil");
+    setBusy(false);
+  }
+}
+
+$("askForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const q = $("askInput").value.trim();
+  if (!q || running || !current?.data?.sessionId) return;
+  $("askInput").value = "";
+  autoGrow();
+  ask(q);
+});
+$("askInput").addEventListener("input", autoGrow);
+$("askInput").addEventListener("keydown", (e) => {
+  // 한글 조합 중 Enter는 글자 확정용이므로 전송하지 않는다
+  if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+    e.preventDefault();
+    $("askForm").requestSubmit();
+  }
+});
 
 $("runBtn").addEventListener("click", () => summarize(true));
 $("copyBtn").addEventListener("click", async () => {
@@ -115,6 +230,8 @@ $("copyBtn").addEventListener("click", async () => {
 // 플러그인 업데이트: 연결 프로그램이 최신 릴리즈를 받아 교체하면 확장을 다시 로드한다.
 const currentVersion = chrome.runtime.getManifest().version;
 $("updateBtn").title = `현재 버전 v${currentVersion}`;
+$("versionLabel").textContent = `v${currentVersion}`;
+$("versionLabel").title = `현재 설치된 버전 v${currentVersion}`;
 
 const isNewer = (a, b) => {
   const pa = String(a).split(".").map(Number), pb = String(b).split(".").map(Number);
@@ -149,8 +266,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
 });
 $("updateBtn").addEventListener("click", async () => {
   if (running) return;
-  const btn = $("updateBtn");
-  btn.disabled = true; $("runBtn").disabled = true;
+  setBusy(true);
   setStatus(`<span class="spinner"></span>업데이트 확인 중... (현재 v${currentVersion})`);
   try {
     const res = await askHost({ type: "update", current: currentVersion });
@@ -166,7 +282,7 @@ $("updateBtn").addEventListener("click", async () => {
   } catch (e) {
     setStatus(e.message || String(e), true);
   }
-  btn.disabled = false; $("runBtn").disabled = false;
+  setBusy(false);
 });
 
 // 다른 탭으로 옮기면 제목만 갱신 (자동 재요약은 하지 않음)

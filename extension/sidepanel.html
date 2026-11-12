@@ -7,7 +7,10 @@
 </head>
 <body>
   <header>
-    <div class="page-title" id="pageTitle">-</div>
+    <div class="title-row">
+      <div class="page-title" id="pageTitle">-</div>
+      <span class="version" id="versionLabel"></span>
+    </div>
     <div class="actions">
       <button id="runBtn" type="button">이 페이지 요약</button>
       <button id="copyBtn" type="button" disabled>복사</button>
@@ -15,8 +18,13 @@
     </div>
   </header>
   <div id="status" class="status"></div>
-  <main id="result" class="result"></main>
+  <main id="result" class="result md"></main>
   <footer id="meta" class="meta"></footer>
+  <section id="thread" class="thread"></section>
+  <form id="askForm" class="composer" hidden>
+    <textarea id="askInput" rows="1" placeholder="이 페이지에 대해 더 물어보기"></textarea>
+    <button id="askBtn" type="submit">보내기</button>
+  </form>
   <script src="markdown.js"></script>
   <script src="sidepanel.js"></script>
 </body>

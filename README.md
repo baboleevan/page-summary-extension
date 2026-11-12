@@ -3,6 +3,8 @@
 툴바 버튼(또는 ⌃0)을 누르면 사이드패널이 열리고 현재 페이지 본문을 `aside exec`로 요약합니다.
 페이지 우클릭 → "핵심 정리: 이 페이지 요약", 텍스트 선택 후 우클릭 → "핵심 정리: 선택한 텍스트 요약"으로도 실행할 수 있습니다.
 CLI 세션 저장(save-sessions)이 켜져 있으면 요약 대화가 Aside 채팅 목록에도 남습니다. Chrome/Aside 공통.
+요약 아래 입력창에서 이어서 질문할 수 있습니다. 요약을 만든 Aside 세션을 `aside session resume`으로 이어가므로 본문 맥락이 유지됩니다 (Enter 전송, Shift+Enter 줄바꿈).
+패널 오른쪽 위에 현재 설치된 버전이 표시됩니다.
 
 구조: extension(sidepanel) → native messaging(com.leevan.page_summary) → host/page_summary_host.py → ~/.local/bin/aside exec
 
